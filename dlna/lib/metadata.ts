@@ -29,7 +29,29 @@ const OPTIONAL_FIELD_MAP: Array<[keyof DlnaMetadata, string]> = [
   ['posterUrl', 'upnp:albumArtURI']
 ]
 
-export const buildDidlLiteMetadata = (media: MediaInformation) => {
+export interface DlnaResourceDetails {
+  size?: number
+  durationMilliseconds?: number
+}
+
+// The fourth protocolInfo field is where a DLNA server declares seekability. OP=01 means byte-range
+// seeking; the value matches the contentFeatures.dlna.org header webtorrent's HTTP server already
+// sends. LG webOS reads it from the DIDL-Lite <res> rather than from the header, and greys out the
+// transport controls when it is missing. See gerbera/gerbera#839 for the same fix on the same TVs.
+const DLNA_PROTOCOL_FLAGS = 'DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000'
+
+// DIDL-Lite duration format: H:MM:SS.mmm
+const toDlnaDuration = (milliseconds: number) => {
+  const totalSeconds = Math.floor(milliseconds / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const fraction = Math.floor(milliseconds % 1000)
+  const pad = (value: number, width: number) => String(value).padStart(width, '0')
+  return `${hours}:${pad(minutes, 2)}:${pad(seconds, 2)}.${pad(fraction, 3)}`
+}
+
+export const buildDidlLiteMetadata = (media: MediaInformation, resource: DlnaResourceDetails = {}) => {
   const metadata = media.metadata as DlnaMetadata
   const contentId = media.contentId
   const contentType = media.contentType || 'video/*'
@@ -46,9 +68,12 @@ export const buildDidlLiteMetadata = (media: MediaInformation) => {
   }
 
   if (contentId) {
-    entries.push(
-      `<res protocolInfo="http-get:*:${escapeXml(contentType)}:*">${escapeXml(contentId)}</res>`
-    )
+    const attributes = [`protocolInfo="http-get:*:${escapeXml(contentType)}:${DLNA_PROTOCOL_FLAGS}"`]
+    if (resource.size && Number.isFinite(resource.size)) attributes.push(`size="${Math.floor(resource.size)}"`)
+    if (resource.durationMilliseconds && Number.isFinite(resource.durationMilliseconds)) {
+      attributes.push(`duration="${toDlnaDuration(resource.durationMilliseconds)}"`)
+    }
+    entries.push(`<res ${attributes.join(' ')}>${escapeXml(contentId)}</res>`)
   }
 
   return [

@@ -19,6 +19,7 @@ import { ANNOUNCE, getTrackers, tracker, scrape, type ScrapeResponse } from './t
 import { HTTPManager } from './webseed/http.ts'
 import { NZBManager } from './webseed/nzb.ts'
 
+import type { DlnaResourceDetails } from './dlna/lib/metadata.ts'
 import type { PROVIDERS } from './network/doh.ts'
 import type { MediaInformation } from 'chromecast-caf-receiver/cast.framework.messages'
 import type { LibraryEntry, TorrentFile, TorrentInfo, ClientSettings } from 'native'
@@ -572,12 +573,34 @@ export default class TorrentClient {
     this.dlnas.listen(emit)
   }
 
-  playDisplay (host: string, hash: string, id: number, media: MediaInformation) {
+  async playDisplay (host: string, hash: string, id: number, media: MediaInformation) {
     if (host.startsWith('cast://')) {
-      return this.chromecasts.play(host.substring(7), hash, id, media)
+      return await this.chromecasts.play(host.substring(7), hash, id, media)
     } else if (host.startsWith('dlna://')) {
-      return this.dlnas.play(host.substring(7), hash, id, media)
+      return await this.dlnas.play(host.substring(7), hash, id, media, await this.dlnaResourceDetails(hash, id))
     }
+  }
+
+  // Size and duration for the DIDL-Lite <res> element. Renderers (LG webOS in particular) use these
+  // to draw a seek bar and to allow seeking at all. Best effort: the duration lives in the Matroska
+  // Info element near the start of the file, which the torrent may not have fetched yet, so the
+  // lookup is bounded and a miss only costs the attributes, never playback.
+  async dlnaResourceDetails (hash: string, id: number): Promise<DlnaResourceDetails> {
+    const torrent = await this[client].get(hash)
+    const file = torrent?.files[id]
+    const details: DlnaResourceDetails = { size: file?.length }
+
+    const metadata = this.attachments._metadata(hash, id)
+    if (!metadata) return details
+
+    const timeout = new Promise<undefined>(resolve => setTimeout(resolve, 8_000, undefined).unref())
+    try {
+      details.durationMilliseconds = await Promise.race([metadata.getDurationMilliseconds(), timeout])
+      if (details.durationMilliseconds === undefined) console.warn('DLNA: no duration available for', hash, id)
+    } catch (error) {
+      console.warn('DLNA: duration lookup failed for', hash, id, error)
+    }
+    return details
   }
 
   closeDisplay (host: string) {

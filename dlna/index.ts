@@ -8,6 +8,7 @@ import Ssdp from '../chromecast/lib/ssdp.ts'
 import { buildDidlLiteMetadata } from './lib/metadata.ts'
 import { soapRequest } from './lib/soap.ts'
 
+import type { DlnaResourceDetails } from './lib/metadata.ts'
 import type { MediaInformation } from 'chromecast-caf-receiver/cast.framework.messages'
 
 const POLL_INTERVAL_MS = 2_000
@@ -139,14 +140,14 @@ class DLNARenderer {
     this.lastTransportState = undefined
   }
 
-  async play (media: MediaInformation) {
+  async play (media: MediaInformation, resource: DlnaResourceDetails = {}) {
     const contentId = typeof media.contentId === 'string' ? media.contentId : ''
     if (!contentId) throw new Error('Invalid media contentId for DLNA playback')
 
     await soapRequest(this.controlURL, this.serviceType, 'SetAVTransportURI', {
       InstanceID: 0,
       CurrentURI: contentId,
-      CurrentURIMetaData: buildDidlLiteMetadata(media)
+      CurrentURIMetaData: buildDidlLiteMetadata(media, resource)
     })
 
     await soapRequest(this.controlURL, this.serviceType, 'Play', {
@@ -275,11 +276,11 @@ export class DLNAs extends EventEmitter<{display: [Array<{ friendlyName: string,
     this.emit('display', Object.values(this.displays))
   }
 
-  async play (host: string, _hash: string, _id: number, media: MediaInformation) {
+  async play (host: string, _hash: string, _id: number, media: MediaInformation, resource: DlnaResourceDetails = {}) {
     const player = this.players.get(host)
     if (!player) throw new Error('No such player')
 
-    await player.play(media)
+    await player.play(media, resource)
     await player.waitForCompletion()
   }
 

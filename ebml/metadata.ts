@@ -140,6 +140,19 @@ export default class Metadata extends Util {
     return Duration?.data !== undefined ? Number(Duration.data) : undefined
   }
 
+  // Matroska stores Duration in TimecodeScale units (nanoseconds per unit, default one millisecond),
+  // so this normalises it to milliseconds regardless of the muxer's scale.
+  async getDurationMilliseconds () {
+    const Info = await this.readSeekHeadTag('Info')
+    if (!Info?.Children?.length) return undefined
+
+    const duration = getData(Info, EbmlTagId.Duration)
+    if (duration === undefined) return undefined
+
+    const timecodeScale = Number(getData(Info, EbmlTagId.TimecodeScale)) || 1_000_000
+    return Number(duration) * timecodeScale / 1_000_000
+  }
+
   async handleBlockGroup (chunk: EbmlMasterTag, timecodeScale: number, currentClusterTimecode: number) {
     await this.tracks
 
